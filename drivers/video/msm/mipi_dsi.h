@@ -247,13 +247,36 @@ struct dsi_cmd_desc {
 	char *payload;
 };
 
-
 typedef void (*kickoff_act)(void *);
 
 struct dsi_kickoff_action {
 	struct list_head act_entry;
 	kickoff_act	action;
 	void *data;
+};
+
+
+#define CMD_REQ_MAX	4
+
+typedef void (*fxn)(u32 data);
+
+#define CMD_REQ_RX	0x0001
+#define CMD_REQ_COMMIT 0x0002
+#define CMD_REQ_NO_MAX_PKT_SIZE 0x0008
+
+struct dcs_cmd_req {
+	struct dsi_cmd_desc *cmds;
+	int cmds_cnt;
+	u32 flags;
+	int rlen;	/* rx length */
+	fxn cb;
+};
+
+struct dcs_cmd_list {
+	int put;
+	int get;
+	int tot;
+	struct dcs_cmd_req list[CMD_REQ_MAX];
 };
 
 
@@ -310,6 +333,12 @@ void mipi_dsi_ahb_ctrl(u32 enable);
 void cont_splash_clk_ctrl(int enable);
 void mipi_dsi_turn_on_clks(void);
 void mipi_dsi_turn_off_clks(void);
+void mipi_dsi_clk_cfg(int on);
+
+int mipi_dsi_cmdlist_put(struct dcs_cmd_req *cmdreq);
+struct dcs_cmd_req *mipi_dsi_cmdlist_get(void);
+void mipi_dsi_cmdlist_commit(int from_mdp);
+void mipi_dsi_cmd_mdp_busy(void);
 
 #ifdef CONFIG_FB_MSM_MDP303
 void update_lane_config(struct msm_panel_info *pinfo);
