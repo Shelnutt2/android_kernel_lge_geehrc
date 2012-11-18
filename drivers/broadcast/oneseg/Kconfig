@@ -1,0 +1,23 @@
+#menu "BROADCAST_DEVICE"
+
+#
+# Broadcast Device Driver Support
+#
+
+#menu "BROADCAST_DEVICE"
+
+config LGE_BROADCAST_ONESEG_MB86A35S
+	bool "1Seg broacast tuner chipset mb86a35s  device driver"
+	depends on LGE_BROADCAST_ONESEG && MACH_APQ8064_J1D
+	default y
+	help
+	  Select this if you want to use Japanese 1Seg mobile broadcast service
+	  
+config LGE_BROADCAST_ONESEG_FC8150
+	bool "1Seg broacast tuner chipset fc8150  device driver"
+	depends on LGE_BROADCAST_ONESEG && MACH_APQ8064_J1KD
+	default y
+	help
+	  Select this if you want to use Japanese 1Seg mobile broadcast service
+	  
+#endmenu

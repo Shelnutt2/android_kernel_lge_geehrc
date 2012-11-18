@@ -1,0 +1,7 @@
+#
+# Inlcude the specific Kconfig file for LGE board
+#
+
+# J1V
+source "arch/arm/mach-msm/lge/j1/Kconfig"
+
