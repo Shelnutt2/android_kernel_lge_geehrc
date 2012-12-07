@@ -367,6 +367,16 @@ kgsl_create_context(struct kgsl_device_private *dev_priv)
 	context->id = id;
 	context->dev_priv = dev_priv;
 
+	if (kgsl_sync_timeline_create(context)) {
+		idr_remove(&dev_priv->device->context_idr, id);
+		kfree(context);
+		return NULL;
+	}
+
+	kref_init(&context->refcount);
+	context->id = id;
+	context->dev_priv = dev_priv;
+
 	return context;
 }
 
@@ -411,6 +421,7 @@ kgsl_context_destroy(struct kref *kref)
 {
 	struct kgsl_context *context = container_of(kref, struct kgsl_context,
 						    refcount);
+	kgsl_sync_timeline_destroy(context);
 	kfree(context);
 }
 
@@ -452,6 +463,7 @@ static void kgsl_check_idle_locked(struct kgsl_device *device)
 	    device->state == KGSL_STATE_ACTIVE &&
 		device->requested_state == KGSL_STATE_NONE) {
 		kgsl_pwrctrl_request_state(device, KGSL_STATE_NAP);
+		kgsl_pwrscale_idle(device, 1);
 		if (kgsl_pwrctrl_sleep(device) != 0)
 			mod_timer(&device->idle_timer,
 				  jiffies +
@@ -560,7 +572,7 @@ static int kgsl_suspend_device(struct kgsl_device *device, pm_message_t state)
 			break;
 		case KGSL_STATE_ACTIVE:
 			/* Wait for the device to become idle */
-			device->ftbl->idle(device, KGSL_TIMEOUT_DEFAULT);
+			device->ftbl->idle(device);
 		case KGSL_STATE_NAP:
 		case KGSL_STATE_SLEEP:
 			/* Get the completion ready to be waited upon. */
@@ -1538,42 +1550,51 @@ static int kgsl_setup_phys_file(struct kgsl_mem_entry *entry,
 	if (ret)
 		return ret;
 
+	ret = -ERANGE;
+
 	if (phys == 0) {
-		ret = -EINVAL;
+		KGSL_CORE_ERR("kgsl_get_phys_file returned phys=0\n");
 		goto err;
 	}
 
-	if (offset >= len) {
-		ret = -EINVAL;
+	/* Make sure the length of the region, the offset and the desired
+	 * size are all page aligned or bail
+	 */
+	if ((len & ~PAGE_MASK) ||
+		(offset & ~PAGE_MASK) ||
+		(size & ~PAGE_MASK)) {
+		KGSL_CORE_ERR("length %lu, offset %u or size %u "
+				"is not page aligned\n",
+				len, offset, size);
 		goto err;
 	}
 
+	/* The size or offset can never be greater than the PMEM length */
+	if (offset >= len || size > len) {
+		KGSL_CORE_ERR("offset %u or size %u "
+				"exceeds pmem length %lu\n",
+				offset, size, len);
+		goto err;
+	}
+
+	/* If size is 0, then adjust it to default to the size of the region
+	 * minus the offset.  If size isn't zero, then make sure that it will
+	 * fit inside of the region.
+	 */
 	if (size == 0)
-		size = len;
+		size = len - offset;
 
-	/* Adjust the size of the region to account for the offset */
-	size += offset & ~PAGE_MASK;
-
-	size = ALIGN(size, PAGE_SIZE);
-
-	if (_check_region(offset & PAGE_MASK, size, len)) {
-		KGSL_CORE_ERR("Offset (%ld) + size (%d) is larger"
-			      "than pmem region length %ld\n",
-			      offset & PAGE_MASK, size, len);
-		ret = -EINVAL;
+	else if (_check_region(offset, size, len))
 		goto err;
-
-	}
 
 	entry->priv_data = filep;
 
 	entry->memdesc.pagetable = pagetable;
 	entry->memdesc.size = size;
-	entry->memdesc.physaddr = phys + (offset & PAGE_MASK);
-	entry->memdesc.hostptr = (void *) (virt + (offset & PAGE_MASK));
+	entry->memdesc.physaddr = phys + offset;
+	entry->memdesc.hostptr = (void *) (virt + offset);
 
-	ret = memdesc_sg_phys(&entry->memdesc,
-		phys + (offset & PAGE_MASK), size);
+	ret = memdesc_sg_phys(&entry->memdesc, phys + offset, size);
 	if (ret)
 		goto err;
 
@@ -2119,6 +2140,11 @@ static long kgsl_ioctl_timestamp_event(struct kgsl_device_private *dev_priv,
 			param->context_id, param->timestamp, param->priv,
 			param->len, dev_priv);
 		break;
+	case KGSL_TIMESTAMP_EVENT_FENCE:
+		ret = kgsl_add_fence_event(dev_priv->device,
+			param->context_id, param->timestamp, param->priv,
+			param->len, dev_priv);
+		break;
 	default:
 		ret = -EINVAL;
 	}
@@ -2280,7 +2306,8 @@ kgsl_mmap_memstore(struct kgsl_device *device, struct vm_area_struct *vma)
 
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
-	result = remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+	result = remap_pfn_range(vma, vma->vm_start,
+				device->memstore.physaddr >> PAGE_SHIFT,
 				 vma_size, vma->vm_page_prot);
 	if (result != 0)
 		KGSL_MEM_ERR(device, "remap_pfn_range failed: %d\n",
@@ -2334,7 +2361,7 @@ static int kgsl_mmap(struct file *file, struct vm_area_struct *vma)
 
 	/* Handle leagacy behavior for memstore */
 
-	if (vma_offset == device->memstore.physaddr)
+	if (vma_offset == device->memstore.gpuaddr)
 		return kgsl_mmap_memstore(device, vma);
 
 	/* Find a chunk of GPU memory */
@@ -2508,7 +2535,11 @@ int kgsl_device_platform_probe(struct kgsl_device *device)
 					 device->pwrctrl.interrupt_num);
 		status = -EINVAL;
 		goto error_pwrctrl_close;
+
 	}
+	/*acquire interrupt */
+	device->pwrctrl.interrupt_num =
+		platform_get_irq_byname(pdev, device->pwrctrl.irq_name);
 
 	status = devm_request_irq(device->dev, device->pwrctrl.interrupt_num,
 				  kgsl_irq_handler, IRQF_TRIGGER_HIGH,

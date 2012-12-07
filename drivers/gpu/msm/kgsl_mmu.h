@@ -29,6 +29,7 @@
    as an identifier */
 
 #define KGSL_MMU_GLOBAL_PT 0
+#define KGSL_MMU_PRIV_BANK_TABLE_NAME 0xFFFFFFFF
 
 struct kgsl_device;
 
@@ -166,6 +167,8 @@ struct kgsl_mmu {
 	struct kgsl_memdesc    setstate_memory;
 	/* current page table object being used by device mmu */
 	struct kgsl_pagetable  *defaultpagetable;
+	/* pagetable object used for priv bank of IOMMU */
+	struct kgsl_pagetable  *priv_bank_table;
 	struct kgsl_pagetable  *hwpagetable;
 	const struct kgsl_mmu_ops *mmu_ops;
 	void *priv;
@@ -202,6 +205,7 @@ int kgsl_mmu_enabled(void);
 void kgsl_mmu_set_mmutype(char *mmutype);
 enum kgsl_mmutype kgsl_mmu_get_mmutype(void);
 unsigned int kgsl_mmu_get_ptsize(void);
+int kgsl_mmu_gpuaddr_in_range(unsigned int gpuaddr);
 
 /*
  * Static inline functions of MMU that simply call the SMMU specific
@@ -296,12 +300,6 @@ static inline void kgsl_mmu_disable_clk_on_ts(struct kgsl_mmu *mmu,
 {
 	if (mmu->mmu_ops && mmu->mmu_ops->mmu_disable_clk_on_ts)
 		mmu->mmu_ops->mmu_disable_clk_on_ts(mmu, ts, ts_valid);
-}
-
-static inline int kgsl_mmu_gpuaddr_in_range(unsigned int gpuaddr)
-{
-	return ((gpuaddr >= KGSL_PAGETABLE_BASE) &&
-		(gpuaddr < (KGSL_PAGETABLE_BASE + kgsl_mmu_get_ptsize())));
 }
 
 static inline unsigned int kgsl_mmu_get_int_mask(void)

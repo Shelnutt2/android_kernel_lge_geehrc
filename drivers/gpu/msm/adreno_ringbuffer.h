@@ -109,6 +109,11 @@ unsigned int adreno_ringbuffer_issuecmds(struct kgsl_device *device,
 					unsigned int *cmdaddr,
 					int sizedwords);
 
+void adreno_ringbuffer_issuecmds_intr(struct kgsl_device *device,
+					struct kgsl_context *k_ctxt,
+					unsigned int *cmdaddr,
+					int sizedwords);
+
 void adreno_ringbuffer_submit(struct adreno_ringbuffer *rb);
 
 void kgsl_cp_intrcallback(struct kgsl_device *device);
@@ -137,6 +142,13 @@ static inline unsigned int adreno_ringbuffer_inc_wrapped(unsigned int val,
 							unsigned int size)
 {
 	return (val + sizeof(unsigned int)) % size;
+}
+
+/* Decrement a value by 4 bytes with wrap-around based on size */
+static inline unsigned int adreno_ringbuffer_dec_wrapped(unsigned int val,
+							unsigned int size)
+{
+	return (val + size - sizeof(unsigned int)) % size;
 }
 
 #endif  /* __ADRENO_RINGBUFFER_H */
