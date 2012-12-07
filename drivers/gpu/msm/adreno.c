@@ -623,8 +623,6 @@ a2xx_getchipid(struct kgsl_device *device)
 	else if (cpu_is_msm8960() &&
 			SOCINFO_VERSION_MAJOR(soc_platform_version) == 3)
 		patchid = 6;
-	else if (cpu_is_msm8625() && minorid == 0)
-		minorid = 1;
 
 	chipid |= (minorid << 8) | patchid;
 
@@ -737,7 +735,8 @@ static int adreno_start(struct kgsl_device *device, unsigned int init_ram)
 	int status = -EINVAL;
 	struct adreno_device *adreno_dev = ADRENO_DEVICE(device);
 
-	kgsl_pwrctrl_set_state(device, KGSL_STATE_INIT);
+	if (KGSL_STATE_DUMP_AND_RECOVER != device->state)
+		kgsl_pwrctrl_set_state(device, KGSL_STATE_INIT);
 
 	/* Power up the device */
 	kgsl_pwrctrl_enable(device);
@@ -781,7 +780,10 @@ static int adreno_start(struct kgsl_device *device, unsigned int init_ram)
 
 	status = adreno_ringbuffer_start(&adreno_dev->ringbuffer, init_ram);
 	if (status == 0) {
-		mod_timer(&device->idle_timer, jiffies + FIRST_TIMEOUT);
+		/* While recovery is on we do not want timer to
+		 * fire and attempt to change any device state */
+		if (KGSL_STATE_DUMP_AND_RECOVER != device->state)
+			mod_timer(&device->idle_timer, jiffies + FIRST_TIMEOUT);
 		return 0;
 	}
 
@@ -898,31 +900,26 @@ static int adreno_setup_recovery_data(struct kgsl_device *device,
 				KGSL_MEMSTORE_OFFSET(KGSL_MEMSTORE_GLOBAL,
 				eoptimestamp));
 
-	adreno_context->flags |= CTXT_FLAGS_GPU_HANG;
-
-	/*
-	 * Set the reset status of all contexts to
-	 * INNOCENT_CONTEXT_RESET_EXT except for the bad context
-	 * since thats the guilty party
-	 */
-	while ((context = idr_get_next(&device->context_idr, &next))) {
-		if (KGSL_CTX_STAT_GUILTY_CONTEXT_RESET_EXT !=
-			context->reset_status) {
-			if (context->id != context_id)
-				context->reset_status =
-				KGSL_CTX_STAT_INNOCENT_CONTEXT_RESET_EXT;
-			else
-				context->reset_status =
-				KGSL_CTX_STAT_GUILTY_CONTEXT_RESET_EXT;
-		}
-		next = next + 1;
+	rec_data->rb_buffer = vmalloc(rb->buffer_desc.size);
+	if (!rec_data->rb_buffer) {
+		KGSL_MEM_ERR(device, "vmalloc(%d) failed\n",
+				rb->buffer_desc.size);
+		return -ENOMEM;
 	}
 
-	/* Restore valid commands in ringbuffer */
-	adreno_ringbuffer_restore(rb, rb_buffer, num_rb_contents);
-	rb->timestamp[KGSL_MEMSTORE_GLOBAL] = timestamp;
+	rec_data->bad_rb_buffer = vmalloc(rb->buffer_desc.size);
+	if (!rec_data->bad_rb_buffer) {
+		KGSL_MEM_ERR(device, "vmalloc(%d) failed\n",
+				rb->buffer_desc.size);
+		ret = -ENOMEM;
+		goto done;
+	}
+
 done:
-	vfree(rb_buffer);
+	if (ret) {
+		vfree(rec_data->rb_buffer);
+		vfree(rec_data->bad_rb_buffer);
+	}
 	return ret;
 }
 
@@ -1125,6 +1122,7 @@ int
 adreno_dump_and_recover(struct kgsl_device *device)
 {
 	int result = -ETIMEDOUT;
+	struct adreno_recovery_data rec_data;
 
 	if (device->state == KGSL_STATE_HUNG)
 		goto done;
@@ -1139,7 +1137,8 @@ adreno_dump_and_recover(struct kgsl_device *device)
 		INIT_COMPLETION(device->recovery_gate);
 		/* Detected a hang */
 
-
+		/* Get the recovery data as soon as hang is detected */
+		result = adreno_setup_recovery_data(device, &rec_data);
 		/*
 		 * Trigger an automatic dump of the state to
 		 * the console
@@ -1151,13 +1150,15 @@ adreno_dump_and_recover(struct kgsl_device *device)
 		 * can at least be sure the PM dump will work as it always has
 		 */
 		kgsl_device_snapshot(device, 1);
-		
-		//BUG_ON(1); //QCT patch for adreno hang dump : CN 00903032
-		result = adreno_recover_hang(device);
-		if (result)
+
+		result = adreno_recover_hang(device, &rec_data);
+		adreno_destroy_recovery_data(&rec_data);
+		if (result) {
 			kgsl_pwrctrl_set_state(device, KGSL_STATE_HUNG);
-		else
+		} else {
 			kgsl_pwrctrl_set_state(device, KGSL_STATE_ACTIVE);
+			mod_timer(&device->idle_timer, jiffies + FIRST_TIMEOUT);
+		}
 		complete_all(&device->recovery_gate);
 	}
 done:
@@ -1812,10 +1813,9 @@ hang_dump:
 		      context_id, timestamp, context_id, ts_issued,
 		      adreno_dev->ringbuffer.wptr);
 	if (!adreno_dump_and_recover(device)) {
-		/* wait for idle after recovery as the
-		 * timestamp that this process wanted
-		 * to wait on may be invalid */
-		if (!adreno_idle(device, KGSL_TIMEOUT_DEFAULT))
+		/* The timestamp that this process wanted
+		 * to wait on may be invalid or expired now
+		 * after successful recovery */
 			status = 0;
 	}
 done:
