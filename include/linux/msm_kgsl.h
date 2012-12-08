@@ -489,7 +489,7 @@ struct kgsl_timestamp_event {
 	size_t len;              /* Size of the event specific blob */
 };
 
-#define IOCTL_KGSL_TIMESTAMP_EVENT \
+#define IOCTL_KGSL_TIMESTAMP_EVENT_OLD \
 	_IOW(KGSL_IOC_TYPE, 0x31, struct kgsl_timestamp_event)
 
 /* A genlock timestamp event releases an existing lock on timestamp expire */
@@ -500,6 +500,13 @@ struct kgsl_timestamp_event_genlock {
 	int handle; /* Handle of the genlock lock to release */
 };
 
+/* A fence timestamp event releases an existing lock on timestamp expire */
+
+#define KGSL_TIMESTAMP_EVENT_FENCE 2
+
+struct kgsl_timestamp_event_fence {
+	int fence_fd; /* Fence to signal */
+};
 /*
  * Set a property within the kernel.  Uses the same structure as
  * IOCTL_KGSL_GETPROPERTY
