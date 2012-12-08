@@ -46,7 +46,7 @@ int mipi_lgit_lcd_ief_off(void)
 		printk("IEF_OFF Starts with Camera\n");
 		mutex_lock(&local_mfd0->dma->ov_mutex);
 		MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-		mipi_dsi_cmds_tx(local_mfd0, &lgit_tx_buf, mipi_lgit_pdata->power_off_set_ief, mipi_lgit_pdata->power_off_set_ief_size);
+		mipi_dsi_cmds_tx(&lgit_tx_buf, mipi_lgit_pdata->power_off_set_ief, mipi_lgit_pdata->power_off_set_ief_size);
 			
 		printk("%s, %d\n", __func__,is_ief_on);
 		MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);//LP mode
@@ -64,7 +64,7 @@ int mipi_lgit_lcd_ief_on(void)
 		printk("IEF_ON Starts with Camera\n");
 		mutex_lock(&local_mfd0->dma->ov_mutex);
 		MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-		mipi_dsi_cmds_tx(local_mfd0, &lgit_tx_buf, mipi_lgit_pdata->power_on_set_ief, mipi_lgit_pdata->power_on_set_ief_size); 
+		mipi_dsi_cmds_tx(&lgit_tx_buf, mipi_lgit_pdata->power_on_set_ief, mipi_lgit_pdata->power_on_set_ief_size); 
 							
 		printk("%s, %d\n", __func__,is_ief_on);
 		MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000); //LP mode
@@ -98,7 +98,7 @@ int mipi_lgit_lcd_ief_on(void)
 	printk(KERN_INFO "%s is started ...\n", __func__);
 //LGE_UPDATE_S hj.eum@lge.com : adding change mipi mode to write register setting of LCD IC
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-	cnt = mipi_dsi_cmds_tx(mfd, &lgit_tx_buf, 
+	cnt = mipi_dsi_cmds_tx(&lgit_tx_buf, 
 		mipi_lgit_pdata->power_on_set_1, 
 		mipi_lgit_pdata->power_on_set_size_1);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);//LP mode
@@ -112,7 +112,7 @@ int mipi_lgit_lcd_ief_on(void)
 	mdelay(10);
 
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-	cnt = mipi_dsi_cmds_tx(mfd, &lgit_tx_buf,
+	cnt = mipi_dsi_cmds_tx(&lgit_tx_buf,
 		mipi_lgit_pdata->power_on_set_2,
 		mipi_lgit_pdata->power_on_set_size_2);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);//LP mode
@@ -136,7 +136,7 @@ int mipi_lgit_lcd_ief_on(void)
 
 //LGE_UPDATE_S hj.eum@lge.com : adding change mipi mode to write register setting of LCD IC
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-	cnt = mipi_dsi_cmds_tx(mfd, &lgit_tx_buf, 
+	cnt = mipi_dsi_cmds_tx(&lgit_tx_buf, 
 		mipi_lgit_pdata->power_on_set_3,
 		mipi_lgit_pdata->power_on_set_size_3);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);//LP mode
@@ -162,7 +162,7 @@ int mipi_lgit_lcd_ief_on(void)
 
 	printk(KERN_INFO"%s is started ...\n", __func__);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-	cnt = mipi_dsi_cmds_tx(mfd, &lgit_tx_buf, 
+	cnt = mipi_dsi_cmds_tx(&lgit_tx_buf, 
 		mipi_lgit_pdata->power_off_set_1,	
 		mipi_lgit_pdata->power_off_set_size_1);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);//LP mode
@@ -186,7 +186,7 @@ int mipi_lgit_lcd_ief_on(void)
 
 	mdelay(20);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-	cnt = mipi_dsi_cmds_tx(mfd, &lgit_tx_buf, 
+	cnt = mipi_dsi_cmds_tx(&lgit_tx_buf, 
 		mipi_lgit_pdata->power_off_set_2,	
 		mipi_lgit_pdata->power_off_set_size_2);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);//LP mode
@@ -203,7 +203,7 @@ int mipi_lgit_lcd_off_for_shutdown(void)
 	printk("%s: jbshim mipi_lgit_lcd_off_for_shutdown \n", __func__);
 
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-	mipi_dsi_cmds_tx(local_mfd0, &lgit_tx_buf,
+	mipi_dsi_cmds_tx(&lgit_tx_buf,
 		mipi_lgit_pdata->power_off_set_1,
 		mipi_lgit_pdata->power_off_set_size_1);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);//LP mode
@@ -225,7 +225,7 @@ int mipi_lgit_lcd_off_for_shutdown(void)
 
 	mdelay(20);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x10000000);//HS mode
-	mipi_dsi_cmds_tx(local_mfd0, &lgit_tx_buf,
+	mipi_dsi_cmds_tx(&lgit_tx_buf,
 		mipi_lgit_pdata->power_off_set_2,
 		mipi_lgit_pdata->power_off_set_size_2);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x38, 0x14000000);//LP mode

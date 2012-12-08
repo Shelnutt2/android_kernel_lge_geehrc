@@ -374,6 +374,7 @@ struct mdp4_overlay_pipe {
 	uint32 req_bw;
 	uint32 luma_align_size;
 	struct mdp4_hsic_regs hsic_regs;
+	struct mdp_overlay_pp_params pp_cfg;
 	struct mdp_overlay req_data;
 	struct completion comp;
 	struct completion dmas_comp;
@@ -656,7 +657,6 @@ void mdp4_primary_vsync_lcdc(void);
 void mdp4_external_vsync_dtv(void);
 void mdp4_lcdc_wait4vsync(int cndx, long long *vtime);
 void mdp4_overlay_lcdc_wait4vsync(struct msm_fb_data_type *mfd);
-void mdp4_overlay_lcdc_start(void);
 void mdp4_overlay_lcdc_vsync_push(struct msm_fb_data_type *mfd,
 				struct mdp4_overlay_pipe *pipe);
 void mdp4_update_perf_level(u32 perf_level);
@@ -720,8 +720,12 @@ int mdp4_overlay_blt_offset(struct fb_info *info,
 #ifdef CONFIG_FB_MSM_MIPI_DSI
 int mdp4_dsi_overlay_blt_start(struct msm_fb_data_type *mfd);
 int mdp4_dsi_overlay_blt_stop(struct msm_fb_data_type *mfd);
+void mdp4_dsi_cmd_blt_start(struct msm_fb_data_type *mfd);
+void mdp4_dsi_cmd_blt_stop(struct msm_fb_data_type *mfd);
 void mdp4_dsi_video_blt_start(struct msm_fb_data_type *mfd);
 void mdp4_dsi_video_blt_stop(struct msm_fb_data_type *mfd);
+void mdp4_dsi_cmd_overlay_blt(struct msm_fb_data_type *mfd,
+					struct msmfb_overlay_blt *req);
 void mdp4_dsi_overlay_blt(struct msm_fb_data_type *mfd,
 					struct msmfb_overlay_blt *req);
 int mdp4_dsi_overlay_blt_offset(struct msm_fb_data_type *mfd,
@@ -778,6 +782,10 @@ static inline int mdp4_dsi_video_overlay_blt_offset(
 	struct msm_fb_data_type *mfd, struct msmfb_overlay_blt *req)
 {
 	return -ENODEV;
+}
+static inline void mdp4_dsi_cmd_overlay_blt(
+	struct msm_fb_data_type *mfd, struct msmfb_overlay_blt *req)
+{
 }
 static inline void mdp4_dsi_video_base_swap(int cndx,
 			struct mdp4_overlay_pipe *pipe)
@@ -987,6 +995,7 @@ int mdp4_csc_enable(struct mdp_csc_cfg_data *config);
 int mdp4_pcc_cfg(struct mdp_pcc_cfg_data *cfg_ptr);
 int mdp4_argc_cfg(struct mdp_pgc_lut_data *pgc_ptr);
 int mdp4_qseed_cfg(struct mdp_qseed_cfg_data *cfg);
+int mdp4_qseed_access_cfg(struct mdp_qseed_cfg *cfg, uint32_t base);
 u32  mdp4_allocate_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);
 void mdp4_init_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);
 void mdp4_free_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);

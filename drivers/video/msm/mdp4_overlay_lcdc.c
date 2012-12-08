@@ -77,7 +77,25 @@ static struct vsycn_ctrl {
 } vsync_ctrl_db[MAX_CONTROLLER];
 
 
-void mdp4_overlay_lcdc_start(void)
+/*******************************************************
+to do:
+1) move vsync_irq_enable/vsync_irq_disable to mdp.c to be shared
+*******************************************************/
+static void vsync_irq_enable(int intr, int term)
+{
+	unsigned long flag;
+
+	spin_lock_irqsave(&mdp_spin_lock, flag);
+	outp32(MDP_INTR_CLEAR, intr);
+	mdp_intr_mask |= intr;
+	outp32(MDP_INTR_ENABLE, mdp_intr_mask);
+	mdp_enable_irq(term);
+	spin_unlock_irqrestore(&mdp_spin_lock, flag);
+	pr_debug("%s: IRQ-en done, term=%x\n", __func__, term);
+}
+
+
+static void mdp4_overlay_lcdc_start(void)
 {
 	if (!lcdc_enabled) {
 		/* enable DSI block */
@@ -137,6 +155,9 @@ void mdp4_lcdc_pipe_queue(int cndx, struct mdp4_overlay_pipe *pipe)
 static int first_time = 1;
 static ktime_t last_vsync_time_ns;
 static struct hrtimer hr_mdp_timer_pc;
+static void mdp4_lcdc_blt_ov_update(struct mdp4_overlay_pipe *pipe);
+static void mdp4_lcdc_wait4dmap(int cndx);
+static void mdp4_lcdc_wait4ov(int cndx);
 
 static unsigned long compute_vsync_interval(void)
 {
@@ -191,6 +212,120 @@ static void program_pc_timer(unsigned long diff_interval)
 	hrtimer_start(&hr_mdp_timer_pc, ktime_pc, HRTIMER_MODE_REL);
 }
 
+int mdp4_lcdc_pipe_commit(int cndx, int wait)
+{
+
+	int  i, undx;
+	int mixer = 0;
+	struct vsycn_ctrl *vctrl;
+	struct vsync_update *vp;
+	struct mdp4_overlay_pipe *pipe;
+	struct mdp4_overlay_pipe *real_pipe;
+	unsigned long flags;
+	int cnt = 0;
+
+	vctrl = &vsync_ctrl_db[cndx];
+
+	mutex_lock(&vctrl->update_lock);
+	undx =  vctrl->update_ndx;
+	vp = &vctrl->vlist[undx];
+	pipe = vctrl->base_pipe;
+	mixer = pipe->mixer_num;
+
+	if (vp->update_cnt == 0) {
+		mutex_unlock(&vctrl->update_lock);
+		return 0;
+	}
+
+	vctrl->update_ndx++;
+	vctrl->update_ndx &= 0x01;
+	vp->update_cnt = 0;     /* reset */
+	if (vctrl->blt_free) {
+		vctrl->blt_free--;
+		if (vctrl->blt_free == 0)
+			mdp4_free_writeback_buf(vctrl->mfd, mixer);
+	}
+	mutex_unlock(&vctrl->update_lock);
+
+	/* free previous committed iommu back to pool */
+	mdp4_overlay_iommu_unmap_freelist(mixer);
+
+	spin_lock_irqsave(&vctrl->spin_lock, flags);
+	if (vctrl->ov_koff != vctrl->ov_done) {
+		spin_unlock_irqrestore(&vctrl->spin_lock, flags);
+		pr_err("%s: Error, frame dropped %d %d\n", __func__,
+			vctrl->ov_koff, vctrl->ov_done);
+		return 0;
+	}
+	spin_unlock_irqrestore(&vctrl->spin_lock, flags);
+
+	mdp4_overlay_mdp_perf_upd(vctrl->mfd, 1);
+
+	if (vctrl->blt_change) {
+		pipe = vctrl->base_pipe;
+		spin_lock_irqsave(&vctrl->spin_lock, flags);
+		INIT_COMPLETION(vctrl->dmap_comp);
+		INIT_COMPLETION(vctrl->ov_comp);
+		vsync_irq_enable(INTR_DMA_P_DONE, MDP_DMAP_TERM);
+		spin_unlock_irqrestore(&vctrl->spin_lock, flags);
+		mdp4_lcdc_wait4dmap(0);
+		if (pipe->ov_blt_addr)
+			mdp4_lcdc_wait4ov(0);
+	}
+
+	pipe = vp->plist;
+	for (i = 0; i < OVERLAY_PIPE_MAX; i++, pipe++) {
+		if (pipe->pipe_used) {
+			cnt++;
+			real_pipe = mdp4_overlay_ndx2pipe(pipe->pipe_ndx);
+			if (real_pipe && real_pipe->pipe_used) {
+				/* pipe not unset */
+				mdp4_overlay_vsync_commit(pipe);
+			}
+			/* free previous iommu to freelist
+			 * which will be freed at next
+			 * pipe_commit
+			 */
+			mdp4_overlay_iommu_pipe_free(pipe->pipe_ndx, 0);
+			pipe->pipe_used = 0; /* clear */
+		}
+	}
+
+	mdp4_mixer_stage_commit(mixer);
+
+	/* start timing generator & mmu if they are not started yet */
+	mdp4_overlay_lcdc_start();
+
+	pipe = vctrl->base_pipe;
+	spin_lock_irqsave(&vctrl->spin_lock, flags);
+	if (pipe->ov_blt_addr) {
+		mdp4_lcdc_blt_ov_update(pipe);
+		pipe->ov_cnt++;
+		INIT_COMPLETION(vctrl->ov_comp);
+		vsync_irq_enable(INTR_OVERLAY0_DONE, MDP_OVERLAY0_TERM);
+		mb();
+		vctrl->ov_koff++;
+		/* kickoff overlay engine */
+		mdp4_stat.kickoff_ov0++;
+		outpdw(MDP_BASE + 0x0004, 0);
+	} else {
+		/* schedule second phase update  at dmap */
+		INIT_COMPLETION(vctrl->dmap_comp);
+		vsync_irq_enable(INTR_DMA_P_DONE, MDP_DMAP_TERM);
+	}
+	spin_unlock_irqrestore(&vctrl->spin_lock, flags);
+
+	mdp4_stat.overlay_commit[pipe->mixer_num]++;
+
+	if (wait) {
+		if (pipe->ov_blt_addr)
+			mdp4_lcdc_wait4ov(0);
+		else
+			mdp4_lcdc_wait4dmap(0);
+	}
+
+	return cnt;
+}
 
 static enum hrtimer_restart mdp_pc_hrtimer_callback(struct hrtimer *timer)
 {

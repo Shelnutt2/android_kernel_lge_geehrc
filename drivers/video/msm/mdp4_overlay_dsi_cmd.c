@@ -798,6 +798,19 @@ void mdp4_mipi_vsync_enable(struct msm_fb_data_type *mfd,
 	}
 }
 
+void mdp4_dsi_cmd_base_swap(int cndx, struct mdp4_overlay_pipe *pipe)
+{
+	struct vsycn_ctrl *vctrl;
+
+	if (cndx >= MAX_CONTROLLER) {
+		pr_err("%s: out or range: cndx=%d\n", __func__, cndx);
+		return;
+	}
+
+	vctrl = &vsync_ctrl_db[cndx];
+	vctrl->base_pipe = pipe;
+}
+
 void mdp4_overlay_update_dsi_cmd(struct msm_fb_data_type *mfd)
 {
 	MDPIBUF *iBuf = &mfd->ibuf;
@@ -982,7 +995,6 @@ void mdp4_dsi_cmd_3d_sbys(struct msm_fb_data_type *mfd,
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
-
 
 void mdp4_dsi_cmd_blt_start(struct msm_fb_data_type *mfd)
 {

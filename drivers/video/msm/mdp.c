@@ -53,6 +53,7 @@ static struct clk *mdp_pclk;
 static struct clk *mdp_lut_clk;
 int mdp_rev;
 int mdp_iommu_split_domain;
+u32 mdp_max_clk = 266667000;
 
 static struct platform_device *mdp_init_pdev;
 static struct regulator *footswitch, *hdmi_pll_fs;
@@ -1485,6 +1486,77 @@ static void mdp_pipe_ctrl_workqueue_handler(struct work_struct *work)
 {
 	mdp_pipe_ctrl(MDP_MASTER_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
+
+static int mdp_clk_rate;
+
+#ifdef CONFIG_FB_MSM_NO_MDP_PIPE_CTRL
+
+/*
+ * mdp_clk_disable_unprepare(void) called from thread context
+ */
+static void mdp_clk_disable_unprepare(void)
+{
+	mb();
+	vsync_clk_disable_unprepare();
+
+	if (mdp_clk != NULL)
+		clk_disable_unprepare(mdp_clk);
+
+	if (mdp_pclk != NULL)
+		clk_disable_unprepare(mdp_pclk);
+
+	if (mdp_lut_clk != NULL)
+		clk_disable_unprepare(mdp_lut_clk);
+}
+
+/*
+ * mdp_clk_prepare_enable(void) called from thread context
+ */
+static void mdp_clk_prepare_enable(void)
+{
+	if (mdp_clk != NULL)
+		clk_prepare_enable(mdp_clk);
+
+	if (mdp_pclk != NULL)
+		clk_prepare_enable(mdp_pclk);
+
+	if (mdp_lut_clk != NULL)
+		clk_prepare_enable(mdp_lut_clk);
+
+	vsync_clk_prepare_enable();
+}
+
+/*
+ * mdp_clk_ctrl: called from thread context
+ */
+void mdp_clk_ctrl(int on)
+{
+	static int mdp_clk_cnt;
+
+	mutex_lock(&mdp_suspend_mutex);
+	if (on) {
+		if (mdp_clk_cnt == 0)
+			mdp_clk_prepare_enable();
+		mdp_clk_cnt++;
+	} else {
+		if (mdp_clk_cnt) {
+			mdp_clk_cnt--;
+			if (mdp_clk_cnt == 0)
+				mdp_clk_disable_unprepare();
+		}
+	}
+	pr_debug("%s: on=%d cnt=%d\n", __func__, on, mdp_clk_cnt);
+	mutex_unlock(&mdp_suspend_mutex);
+}
+
+
+
+void mdp_pipe_ctrl(MDP_BLOCK_TYPE block, MDP_BLOCK_POWER_STATE state,
+		   boolean isr)
+{
+	/* do nothing */
+}
+#else
 void mdp_pipe_ctrl(MDP_BLOCK_TYPE block, MDP_BLOCK_POWER_STATE state,
 		   boolean isr)
 {
@@ -1646,6 +1718,12 @@ void mdp_pipe_ctrl(MDP_BLOCK_TYPE block, MDP_BLOCK_POWER_STATE state,
 		up(&mdp_pipe_ctrl_mutex);
 	}
 }
+
+void mdp_clk_ctrl(int on)
+{
+	/* do nothing */
+}
+#endif
 
 void mdp_histogram_handle_isr(struct mdp_hist_mgmt *mgmt)
 {
@@ -2423,7 +2501,7 @@ static int mdp_probe(struct platform_device *pdev)
 		mfd->do_histogram = mdp_do_histogram;
 		mfd->start_histogram = mdp_histogram_start;
 		mfd->stop_histogram = mdp_histogram_stop;
-		mfd->wait4idle = mdp4_overlay_dsi_video_wait4idle;
+//		mfd->wait4idle = mdp4_overlay_dsi_video_wait4idle;
 		if (mfd->panel_info.pdest == DISPLAY_1) {
 			if_no = PRIMARY_INTF_SEL;
 			mfd->dma = &dma2_data;
@@ -2515,8 +2593,10 @@ static int mdp_probe(struct platform_device *pdev)
 	case HDMI_PANEL:
 	case LCDC_PANEL:
 	case LVDS_PANEL:
+#ifdef CONFIG_FB_MSM_MDP303
 		pdata->on = mdp_lcdc_on;
 		pdata->off = mdp_lcdc_off;
+#endif
 		mfd->hw_refresh = TRUE;
 #if	defined(CONFIG_FB_MSM_OVERLAY) && defined(CONFIG_FB_MSM_MDP40)
 		mfd->cursor_update = mdp_hw_cursor_sync_update;
@@ -2531,7 +2611,7 @@ static int mdp_probe(struct platform_device *pdev)
 #endif
 #ifdef CONFIG_FB_MSM_OVERLAY
 		mfd->dma_fnc = mdp4_lcdc_overlay;
-		mfd->wait4idle = mdp4_overlay_lcdc_wait4idle;
+//		mfd->wait4idle = mdp4_overlay_lcdc_wait4idle;
 #else
 		mfd->dma_fnc = mdp_lcdc_update;
 #endif

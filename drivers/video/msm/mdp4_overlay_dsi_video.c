@@ -133,6 +133,43 @@ static __u32 msm_fb_line_length(__u32 fb_index, __u32 xres, int bpp)
 		return xres * bpp;
 }
 
+/*
+ * mdp4_dsi_video_pipe_queue:
+ * called from thread context
+ */
+void mdp4_dsi_video_pipe_queue(int cndx, struct mdp4_overlay_pipe *pipe)
+{
+	struct vsycn_ctrl *vctrl;
+	struct vsync_update *vp;
+	struct mdp4_overlay_pipe *pp;
+	int undx;
+
+	if (cndx >= MAX_CONTROLLER) {
+		pr_err("%s: out or range: cndx=%d\n", __func__, cndx);
+		return;
+	}
+
+	vctrl = &vsync_ctrl_db[cndx];
+
+	if (atomic_read(&vctrl->suspend) > 0)
+		return;
+
+	mutex_lock(&vctrl->update_lock);
+	undx =  vctrl->update_ndx;
+	vp = &vctrl->vlist[undx];
+
+	pp = &vp->plist[pipe->pipe_ndx - 1];	/* ndx start form 1 */
+
+	pr_debug("%s: vndx=%d pipe=%x ndx=%d num=%d pid=%d\n",
+		 __func__, undx, (int)pipe, pipe->pipe_ndx, pipe->pipe_num,
+		current->pid);
+
+	*pp = *pipe;	/* clone it */
+	vp->update_cnt++;
+	mutex_unlock(&vctrl->update_lock);
+	mdp4_stat.overlay_play[pipe->mixer_num]++;
+}
+
 static void mdp4_dsi_video_blt_ov_update(struct mdp4_overlay_pipe *pipe);
 static void mdp4_dsi_video_wait4dmap(int cndx);
 static void mdp4_dsi_video_wait4ov(int cndx);
@@ -444,6 +481,18 @@ void mdp4_dsi_vsync_init(int cndx, struct msm_fb_data_type *mfd)
 		pr_debug("%s: kobject_uevent(KOBJ_ADD)\n", __func__);
 		vctrl->sysfs_created = 1;
 	}
+}
+void mdp4_dsi_video_base_swap(int cndx, struct mdp4_overlay_pipe *pipe)
+{
+	struct vsycn_ctrl *vctrl;
+
+	if (cndx >= MAX_CONTROLLER) {
+		pr_err("%s: out or range: cndx=%d\n", __func__, cndx);
+		return;
+	}
+
+	vctrl = &vsync_ctrl_db[cndx];
+	vctrl->base_pipe = pipe;
 }
 
 void mdp4_dsi_video_fxn_register(cmd_fxn_t fxn)
