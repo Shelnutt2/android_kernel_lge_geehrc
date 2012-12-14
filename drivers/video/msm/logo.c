@@ -23,6 +23,11 @@
 
 #include <linux/irq.h>
 #include <asm/system.h>
+#if defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OLED_CMD_QHD_PT) \
+	|| defined(CONFIG_FB_MSM_MIPI_NOVATEK_BOE_CMD_WVGA_PT) \
+	|| defined(CONFIG_FB_MSM_MIPI_NOVATEK_CMD_WVGA_PT)
+#include <asm/cacheflush.h>
+#endif
 
 #define fb_width(fb)	((fb)->var.xres)
 #define fb_height(fb)	((fb)->var.yres)
@@ -36,30 +41,42 @@ static void memset16(void *_ptr, unsigned short val, unsigned count)
 		*ptr++ = val;
 }
 
-#if defined(CONFIG_MACH_LGE) && \
-	(defined(CONFIG_FB_MSM_DEFAULT_DEPTH_ARGB8888) ||\
-	 defined(CONFIG_FB_MSM_DEFAULT_DEPTH_RGBA8888))
-/* LGE_CHANGE
-* This function is used for load_565rle_image function.
-* it deals with 32 bit images
-* 2011-10-20, baryun.hwang@lge.com
-*/
-static void memset32(void *_ptr, unsigned short val, unsigned count)
+
+/* convert RGB565 to RBG8888 */
+static int total_pixel = 1;
+static int memset16_rgb8888(void *_ptr, unsigned short val, unsigned count,
+				struct fb_info *fb)
 {
-    char *ptr = _ptr;
-    char r = val & 0x001f;
-    char g = (val & 0x07e0)>>5;
-    char b = (val & 0xf800)>>11;
-    count >>= 1;
+	unsigned short *ptr = _ptr;
+	unsigned short red;
+	unsigned short green;
+	unsigned short blue;
+	int need_align = (fb->fix.line_length >> 2) - fb->var.xres;
+	int align_amount = need_align << 1;
+	int pad = 0;
+
+	red = (val & 0xF800) >> 8;
+	green = (val & 0x7E0) >> 3;
+	blue = (val & 0x1F) << 3;
+
+	count >>= 1;
 	while (count--) {
-		*ptr++ = b<<3 | b>>2;
-		*ptr++ = g<<2 | g>>4;
-		*ptr++ = r<<3 | r>>2;
-		*ptr++ = 0xff;
+		*ptr++ = (green << 8) | red;
+		*ptr++ = blue;
+
+		if (need_align) {
+			if (!(total_pixel % fb->var.xres)) {
+				ptr += align_amount;
+				pad++;
+			}
+		}
+
+		total_pixel++;
 	}
 
+	return pad * align_amount;
 }
-#endif
+
 /* 565RLE image format: [count(2 bytes), rle(2 bytes)] */
 int load_565rle_image(char *filename, bool bf_supported)
 {
@@ -67,6 +84,10 @@ int load_565rle_image(char *filename, bool bf_supported)
 	int fd, count, err = 0;
 	unsigned max;
 	unsigned short *data, *bits, *ptr;
+#ifndef CONFIG_FRAMEBUFFER_CONSOLE
+//	struct module *owner;
+#endif
+	int pad;
 
 	info = registered_fb[0];
 	if (!info) {
@@ -74,6 +95,16 @@ int load_565rle_image(char *filename, bool bf_supported)
 			__func__);
 		return -ENODEV;
 	}
+
+#if 0
+	owner = info->fbops->owner;
+	if (!try_module_get(owner))
+		return -ENODEV;
+	if (info->fbops->fb_open && info->fbops->fb_open(info, 0)) {
+		module_put(owner);
+		return -ENODEV;
+	}
+#endif
 
 	fd = sys_open(filename, O_RDONLY, 0);
 	if (fd < 0) {
@@ -111,98 +142,96 @@ int load_565rle_image(char *filename, bool bf_supported)
 		unsigned n = ptr[0];
 		if (n > max)
 			break;
-		memset16(bits, ptr[1], n << 1);
-		bits += n;
+		if (info->var.bits_per_pixel >= 24) {
+			pad = memset16_rgb8888(bits, ptr[1], n << 1, info);
+			bits += n << 1;
+			bits += pad;
+		} else {
+			memset16(bits, ptr[1], n << 1);
+			bits += n;
+		}
 		max -= n;
 		ptr += 2;
 		count -= 4;
 	}
 
+#if defined(CONFIG_FB_MSM_MIPI_SAMSUNG_OLED_CMD_QHD_PT) \
+	|| defined(CONFIG_FB_MSM_MIPI_NOVATEK_BOE_CMD_WVGA_PT) \
+	|| defined(CONFIG_FB_MSM_MIPI_NOVATEK_CMD_WVGA_PT)
+	flush_cache_all();
+	outer_flush_all();
+#endif
+
 err_logo_free_data:
 	kfree(data);
 err_logo_close_file:
 	sys_close(fd);
-	return err;
-}
 
-#if defined(CONFIG_MACH_LGE) && \
-	(defined(CONFIG_FB_MSM_DEFAULT_DEPTH_ARGB8888) ||\
-	 defined(CONFIG_FB_MSM_DEFAULT_DEPTH_RGBA8888))
-/* LGE_CHANGE
-* This function is added to load 888rle images
-* 2011-10-20, baryun.hwang@lge.com
-*/
-int load_888rle_image(char *filename)
-{
-	struct fb_info *info;
-	int fd, count, err = 0;
-	unsigned max;
-	unsigned short *data, *ptr;
-	char *bits;
-
-	printk(KERN_INFO "%s: load_888rle_image filename: %s\n",
-			__func__, filename);
-	info = registered_fb[0];
-	if (!info) {
-		printk(KERN_WARNING "%s: Can not access framebuffer\n",
+#if 0
+	err = fb_pan_display(info, &info->var);
+	if (err < 0) {
+		printk(KERN_WARNING "%s: Can not update framebuffer\n",
 			__func__);
 		return -ENODEV;
 	}
+#endif
 
-	fd = sys_open(filename, O_RDONLY, 0);
-	if (fd < 0) {
-		printk(KERN_WARNING "%s: Can not open %s\n",
-			__func__, filename);
-		return -ENOENT;
-	}
-	count = sys_lseek(fd, (off_t)0, 2);
-	if (count <= 0) {
-		err = -EIO;
-		goto err_logo_close_file;
-	}
-	sys_lseek(fd, (off_t)0, 0);
-	data = kmalloc(count, GFP_KERNEL);
-	if (!data) {
-		printk(KERN_WARNING "%s: Can not alloc data\n", __func__);
-		err = -ENOMEM;
-		goto err_logo_close_file;
-	}
-	if (sys_read(fd, (char *)data, count) != count) {
-		printk(KERN_WARNING "%s: Can not read data\n", __func__);
-		err = -EIO;
-		goto err_logo_free_data;
-	}
-
-	max = fb_width(info) * fb_height(info);
-	ptr = data;
-	bits = (char *)(info->screen_base);
-
-	while (count > 3) {
-		unsigned n = ptr[0];
-
-		if (n > max)
-			break;
-		if (info->var.bits_per_pixel/8 == 4)
-			memset32(bits, ptr[1], n << 1);
-	    else
-			memset16(bits, ptr[1], n << 1);
-
-		bits += info->var.bits_per_pixel/8*n;
-		max -= n;
-		ptr += 2;
-		count -= 4;
-	}
-
-err_logo_free_data:
-	kfree(data);
-err_logo_close_file:
-	sys_close(fd);
 	return err;
 }
-#endif
 EXPORT_SYMBOL(load_565rle_image);
-#if defined(CONFIG_MACH_LGE) && \
-	(defined(CONFIG_FB_MSM_DEFAULT_DEPTH_ARGB8888) ||\
-	 defined(CONFIG_FB_MSM_DEFAULT_DEPTH_RGBA8888))
-EXPORT_SYMBOL(load_888rle_image);
-#endif
+
+int draw_rgb888_screen(void)
+{
+	struct fb_info *fb = registered_fb[0];
+	u32 height = fb->var.yres / 5;
+	u32 line = fb->fix.line_length;
+	u32 i, j;
+
+	for (i = 0; i < height; i++) {
+		for (j = 0; j < fb->var.xres; j++) {
+			memset(fb->screen_base + i * line + j * 4 + 0, 0xff, 1);
+			memset(fb->screen_base + i * line + j * 4 + 1, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 2, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 3, 0x00, 1);
+		}
+	}
+
+	for (i = height; i < height * 2; i++) {
+		for (j = 0; j < fb->var.xres; j++) {
+			memset(fb->screen_base + i * line + j * 4 + 0, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 1, 0xff, 1);
+			memset(fb->screen_base + i * line + j * 4 + 2, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 3, 0x00, 1);
+		}
+	}
+
+	for (i = height * 2; i < height * 3; i++) {
+		for (j = 0; j < fb->var.xres; j++) {
+			memset(fb->screen_base + i * line + j * 4 + 0, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 1, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 2, 0xff, 1);
+			memset(fb->screen_base + i * line + j * 4 + 3, 0x00, 1);
+		}
+	}
+
+	for (i = height * 3; i < height * 4; i++) {
+		for (j = 0; j < fb->var.xres; j++) {
+			memset(fb->screen_base + i * line + j * 4 + 0, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 1, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 2, 0x00, 1);
+			memset(fb->screen_base + i * line + j * 4 + 3, 0xff, 1);
+		}
+	}
+
+	for (i = height * 4; i < height * 5; i++) {
+		for (j = 0; j < fb->var.xres; j++) {
+			memset(fb->screen_base + i * line + j * 4 + 0, 0xff, 1);
+			memset(fb->screen_base + i * line + j * 4 + 1, 0xff, 1);
+			memset(fb->screen_base + i * line + j * 4 + 2, 0xff, 1);
+			memset(fb->screen_base + i * line + j * 4 + 3, 0x00, 1);
+		}
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(draw_rgb888_screen);

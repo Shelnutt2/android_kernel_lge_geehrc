@@ -592,7 +592,7 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 		clk_set_rate(pwr->grp_clks[0], pwr->
 				pwrlevels[pwr->num_pwrlevels - 1].gpu_freq);
 
-	pwr->gpu_reg = regulator_get(&pdev->dev, "vdd");
+	pwr->gpu_reg = regulator_get(NULL, pwr->regulator_name);
 	if (IS_ERR(pwr->gpu_reg))
 		pwr->gpu_reg = NULL;
 
@@ -925,10 +925,10 @@ void kgsl_pwrctrl_wake(struct kgsl_device *device)
 		mod_timer(&device->idle_timer,
 				jiffies + device->pwrctrl.interval_timeout);
 		wake_lock(&device->idle_wakelock);
-		if (device->pwrctrl.restore_slumber == false)
-			pm_qos_update_request(&device->pm_qos_req_dma,
-						GPU_SWFI_LATENCY);
+		pm_qos_update_request(&device->pm_qos_req_dma,
+					GPU_SWFI_LATENCY);
 	case KGSL_STATE_ACTIVE:
+		kgsl_pwrctrl_request_state(device, KGSL_STATE_NONE);
 		break;
 	default:
 		KGSL_PWR_WARN(device, "unhandled state %s\n",

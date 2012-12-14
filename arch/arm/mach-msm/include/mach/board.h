@@ -61,6 +61,10 @@ struct msm_camera_device_platform_data {
 	struct msm_camera_io_ext ioext;
 	struct msm_camera_io_clk ioclk;
 	uint8_t csid_core;
+	uint8_t is_csiphy;
+	uint8_t is_csic;
+	uint8_t is_csid;
+	uint8_t is_ispif;
 	uint8_t is_vpe;
 	struct msm_bus_scale_pdata *cam_bus_scale_table;
 };
@@ -393,6 +397,7 @@ struct msm_panel_common_pdata {
 	int mdp_core_clk_rate;
 	unsigned num_mdp_clk;
 	int *mdp_core_clk_table;
+	u32 mdp_max_clk;
 #ifdef CONFIG_MSM_BUS_SCALING
 	struct msm_bus_scale_pdata *mdp_bus_scale_table;
 #endif
@@ -451,6 +456,8 @@ struct mipi_dsi_platform_data {
 	int (*get_lane_config)(void);
 	char (*splash_is_enabled)(void);
 	int target_type;
+	void (*lcd_rst_up)(void);
+	void (*lcd_rst_down)(void);
 };
 
 enum mipi_dsi_3d_ctrl {
@@ -505,6 +512,7 @@ struct msm_hdmi_platform_data {
 	int (*gpio_config)(int on);
 	int (*init_irq)(void);
 	bool (*check_hdcp_hw_support)(void);
+	int (*hdmi_enable)(void);
 	bool is_mhl_enabled;
 };
 

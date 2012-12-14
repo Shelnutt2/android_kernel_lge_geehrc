@@ -685,7 +685,6 @@ kgsl_gpummu_map(void *mmu_specific_pt,
 
 static void kgsl_gpummu_stop(struct kgsl_mmu *mmu)
 {
-
 	mmu->flags &= ~KGSL_FLAGS_STARTED;
 }
 

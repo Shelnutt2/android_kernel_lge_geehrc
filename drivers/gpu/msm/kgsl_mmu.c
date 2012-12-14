@@ -319,13 +319,7 @@ unsigned int kgsl_mmu_get_ptsize(void)
 	if (KGSL_MMU_TYPE_GPU == kgsl_mmu_type)
 		return CONFIG_MSM_KGSL_PAGE_TABLE_SIZE;
 	else if (KGSL_MMU_TYPE_IOMMU == kgsl_mmu_type)
-//[S_QCT_PATCH][CASE_00938184] Patch for iommu page fault
-#if 0
 		return SZ_2G;
-#else
-		return SZ_2G - KGSL_PAGETABLE_BASE;
-#endif
-//[E_QCT_PATCH]
 	else
 		return 0;
 }

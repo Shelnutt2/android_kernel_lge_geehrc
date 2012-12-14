@@ -373,8 +373,15 @@ static void fb_flashcursor(struct work_struct *work)
 	struct vc_data *vc = NULL;
 	int c;
 	int mode;
+	int ret;
 
-	console_lock();
+	/* FIXME: we should sort out the unbind locking instead */
+	/* instead we just fail to flash the cursor if we can't get
+	 * the lock instead of blocking fbcon deinit */
+	ret = console_trylock();
+	if (ret == 0)
+		return;
+
 	if (ops && ops->currcon != -1)
 		vc = vc_cons[ops->currcon].d;
 
@@ -3553,7 +3560,7 @@ static int __init fb_console_init(void)
 	console_lock();
 	fb_register_client(&fbcon_event_notifier);
 	fbcon_device = device_create(fb_class, NULL, MKDEV(0, 0), NULL,
-				     "fbconsole");
+				     "fbcon");
 
 	if (IS_ERR(fbcon_device)) {
 		printk(KERN_WARNING "Unable to create device "

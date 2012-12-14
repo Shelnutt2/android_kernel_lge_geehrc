@@ -347,16 +347,11 @@ static void vid_dec_output_frame_done(struct video_client_ctx *client_ctx,
 		ion_flag = vidc_get_fd_info(client_ctx, BUFFER_TYPE_OUTPUT,
 				pmem_fd, kernel_vaddr, buffer_index,
 				&buff_handle);
-		if (ion_flag == CACHED && buff_handle) {
-			DBG("%s: Cache invalidate: vaddr (%p), "\
-				"size %u\n", __func__,
-				(void *)kernel_vaddr,
-				vcd_frame_data->alloc_len);
+		if (ion_flag == CACHED) {
 			msm_ion_do_cache_op(client_ctx->user_ion_client,
 					buff_handle,
 					(unsigned long *) kernel_vaddr,
-					(unsigned long)vcd_frame_data->\
-					alloc_len,
+					(unsigned long)vcd_frame_data->data_len,
 					ION_IOC_INV_CACHES);
 		}
 	}
@@ -641,26 +636,6 @@ static u32 vid_dec_set_frame_resolution(struct video_client_ctx *client_ctx,
 		return true;
 }
 
-static u32 vid_dec_set_turbo_clk(struct video_client_ctx *client_ctx)
-{
-	struct vcd_property_hdr vcd_property_hdr;
-	u32 vcd_status = VCD_ERR_FAIL;
-	u32 dummy = 0;
-
-	if (!client_ctx)
-		return false;
-	vcd_property_hdr.prop_id = VCD_I_SET_TURBO_CLK;
-	vcd_property_hdr.sz = sizeof(struct vcd_property_frame_size);
-
-	vcd_status = vcd_set_property(client_ctx->vcd_handle,
-				      &vcd_property_hdr, &dummy);
-
-	if (vcd_status)
-		return false;
-	else
-		return true;
-}
-
 static u32 vid_dec_get_frame_resolution(struct video_client_ctx *client_ctx,
 					struct vdec_picsize *video_resoultion)
 {
@@ -894,7 +869,7 @@ static u32 vid_dec_set_h264_mv_buffers(struct video_client_ctx *client_ctx,
 		client_ctx->h264_mv_ion_handle = ion_import_fd(
 					client_ctx->user_ion_client,
 					vcd_h264_mv_buffer->pmem_fd);
-		if (IS_ERR_OR_NULL(client_ctx->h264_mv_ion_handle)) {
+		if (!client_ctx->h264_mv_ion_handle) {
 			ERR("%s(): get_ION_handle failed\n", __func__);
 			goto import_ion_error;
 		}
@@ -915,7 +890,8 @@ static u32 vid_dec_set_h264_mv_buffers(struct video_client_ctx *client_ctx,
 				 __func__);
 			goto import_ion_error;
 		}
-		if (res_trk_check_for_sec_session()) {
+		if (res_trk_check_for_sec_session() ||
+		   (res_trk_get_core_type() == (u32)VCD_CORE_720P)) {
 			rc = ion_phys(client_ctx->user_ion_client,
 				client_ctx->h264_mv_ion_handle,
 				(unsigned long *) (&(vcd_h264_mv_buffer->
@@ -957,16 +933,12 @@ static u32 vid_dec_set_h264_mv_buffers(struct video_client_ctx *client_ctx,
 	else
 		return true;
 ion_map_error:
-	if (vcd_h264_mv_buffer->kernel_virtual_addr) {
+	if (vcd_h264_mv_buffer->kernel_virtual_addr)
 		ion_unmap_kernel(client_ctx->user_ion_client,
 				client_ctx->h264_mv_ion_handle);
-		vcd_h264_mv_buffer->kernel_virtual_addr = NULL;
-	}
-	if (!IS_ERR_OR_NULL(client_ctx->h264_mv_ion_handle)) {
+	if (client_ctx->h264_mv_ion_handle)
 		ion_free(client_ctx->user_ion_client,
 			client_ctx->h264_mv_ion_handle);
-		 client_ctx->h264_mv_ion_handle = NULL;
-	}
 import_ion_error:
 	return false;
 }
@@ -1035,10 +1007,11 @@ static u32 vid_dec_free_h264_mv_buffers(struct video_client_ctx *client_ctx)
 	vcd_status = vcd_set_property(client_ctx->vcd_handle,
 				      &vcd_property_hdr, &h264_mv_buffer_size);
 
-	if (!IS_ERR_OR_NULL(client_ctx->h264_mv_ion_handle)) {
+	if (client_ctx->h264_mv_ion_handle != NULL) {
 		ion_unmap_kernel(client_ctx->user_ion_client,
 					client_ctx->h264_mv_ion_handle);
-		if (!res_trk_check_for_sec_session()) {
+		if (!res_trk_check_for_sec_session() &&
+		   (res_trk_get_core_type() != (u32)VCD_CORE_720P)) {
 			ion_unmap_iommu(client_ctx->user_ion_client,
 				client_ctx->h264_mv_ion_handle,
 				VIDEO_DOMAIN,
@@ -1046,7 +1019,6 @@ static u32 vid_dec_free_h264_mv_buffers(struct video_client_ctx *client_ctx)
 		}
 		ion_free(client_ctx->user_ion_client,
 					client_ctx->h264_mv_ion_handle);
-		 client_ctx->h264_mv_ion_handle = NULL;
 	}
 
 	if (vcd_status)
@@ -1295,7 +1267,7 @@ static u32 vid_dec_decode_frame(struct video_client_ctx *client_ctx,
 						kernel_vaddr,
 						buffer_index,
 						&buff_handle);
-			if (ion_flag == CACHED && buff_handle) {
+			if (ion_flag == CACHED) {
 				msm_ion_do_cache_op(client_ctx->user_ion_client,
 				buff_handle,
 				(unsigned long *)kernel_vaddr,
@@ -1705,11 +1677,6 @@ static long vid_dec_ioctl(struct file *file,
 			desc_buf = NULL;
 			return -EIO;
 		}
-		break;
-	}
-	case VDEC_IOCTL_SET_PERF_CLK:
-	{
-		vid_dec_set_turbo_clk(client_ctx);
 		break;
 	}
 	case VDEC_IOCTL_FILL_OUTPUT_BUFFER:

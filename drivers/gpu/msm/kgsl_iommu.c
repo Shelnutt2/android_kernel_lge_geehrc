@@ -455,6 +455,7 @@ static int _get_iommu_ctxs(struct kgsl_mmu *mmu,
 				"IOMMU unit\n");
 		return -EINVAL;
 	}
+
 	for (i = 0; i < data->iommu_ctx_count; i++) {
 		if (!data->iommu_ctxs[i].iommu_ctx_name)
 			continue;
@@ -588,7 +589,6 @@ static unsigned int kgsl_iommu_pt_get_base_addr(struct kgsl_pagetable *pt)
 {
 	struct kgsl_iommu_pt *iommu_pt = pt->priv;
 	return iommu_get_pt_base_addr(iommu_pt->domain);
-
 }
 
 /*
@@ -728,7 +728,6 @@ static int kgsl_iommu_setup_defaultpagetable(struct kgsl_mmu *mmu)
 		status = -ENOMEM;
 		goto err;
 	}
-
 	pagetable = mmu->priv_bank_table ? mmu->priv_bank_table :
 				mmu->defaultpagetable;
 	/* Map the IOMMU regsiters to only defaultpagetable */
@@ -923,7 +922,6 @@ static void kgsl_iommu_stop(struct kgsl_mmu *mmu)
 	 */
 
 	if (mmu->flags & KGSL_FLAGS_STARTED) {
-		kgsl_regwrite(mmu->device, MH_MMU_CONFIG, 0x00000000);
 		/* detach iommu attachment */
 		kgsl_detach_pagetable_iommu_domain(mmu);
 		mmu->hwpagetable = NULL;
@@ -942,7 +940,6 @@ static int kgsl_iommu_close(struct kgsl_mmu *mmu)
 	struct kgsl_iommu *iommu = mmu->priv;
 	int i;
 	for (i = 0; i < iommu->unit_count; i++) {
-
 		struct kgsl_pagetable *pagetable = (mmu->priv_bank_table ?
 			mmu->priv_bank_table : mmu->defaultpagetable);
 		if (iommu->iommu_units[i].reg_map.gpuaddr)

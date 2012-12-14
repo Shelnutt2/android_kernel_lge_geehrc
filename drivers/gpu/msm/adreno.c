@@ -90,6 +90,7 @@ static struct adreno_device device_3d0 = {
 			.config = ADRENO_MMU_CONFIG,
 		},
 		.pwrctrl = {
+			.regulator_name = "fs_gfx3d",
 			.irq_name = KGSL_3D0_IRQ,
 		},
 		.iomemname = KGSL_3D0_REG_MEMORY,
@@ -567,7 +568,6 @@ a3xx_getchipid(struct kgsl_device *device)
 			patchid = 1;
 		else
 			patchid = 0;
-
 	} else if (cpu_is_msm8930() || cpu_is_msm8627()) {
 
 		/* A305 */
@@ -1390,7 +1390,6 @@ retry:
 			if (!(rbbm_status & 0x80000000))
 				return 0;
 		}
-
 
 		/* Dont wait for timeout, detect hang faster.
 		 */

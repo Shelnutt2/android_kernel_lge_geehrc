@@ -81,13 +81,16 @@ int mdp4_overlay_writeback_on(struct platform_device *pdev)
 
 	if (writeback_pipe == NULL) {
 		pipe = mdp4_overlay_pipe_alloc(OVERLAY_TYPE_BF, MDP4_MIXER2);
-		if (pipe == NULL)
+		if (pipe == NULL) {
 			pr_info("%s: pipe_alloc failed\n", __func__);
+			return -EBUSY;
+		}
 		pipe->pipe_used++;
 		pipe->mixer_stage  = MDP4_MIXER_STAGE_BASE;
 		pipe->mixer_num  = MDP4_MIXER2;
 		pipe->src_format = MDP_ARGB_8888;
-		mdp4_overlay_panel_mode(pipe->mixer_num, MDP4_PANEL_WRITEBACK);
+			mdp4_overlay_panel_mode(pipe->mixer_num,
+				MDP4_PANEL_WRITEBACK);
 		ret = mdp4_overlay_format2pipe(pipe);
 		if (ret < 0)
 			pr_info("%s: format2type failed\n", __func__);
@@ -98,11 +101,14 @@ int mdp4_overlay_writeback_on(struct platform_device *pdev)
 		pipe = writeback_pipe;
 	}
 	ret = panel_next_on(pdev);
+
 	/* MDP_LAYERMIXER_WB_MUX_SEL to use mixer1 axi for mixer2 writeback */
-	data = inpdw(MDP_BASE + 0x100F4);
-	data &= ~0x02; /* clear the mixer1 mux bit */
-	data |= 0x02;
+	if (hdmi_prim_display)
+		data = 0x01;
+	else
+		data = 0x02;
 	outpdw(MDP_BASE + 0x100F4, data);
+
 	MDP_OUTP(MDP_BASE + MDP4_OVERLAYPROC1_BASE + 0x5004,
 		((0x0 & 0xFFF) << 16) | /* 12-bit B */
 			(0x0 & 0xFFF));         /* 12-bit G */
@@ -117,23 +123,20 @@ int mdp4_overlay_writeback_on(struct platform_device *pdev)
 int mdp4_overlay_writeback_off(struct platform_device *pdev)
 {
 	int ret;
-	uint32 data;
 	struct msm_fb_data_type *mfd =
 			(struct msm_fb_data_type *)platform_get_drvdata(pdev);
 	if (mfd && writeback_pipe) {
 		mdp4_writeback_dma_busy_wait(mfd);
 		mdp4_overlay_pipe_free(writeback_pipe);
+		mdp4_overlay_iommu_unmap_freelist(writeback_pipe->mixer_num);
 		mdp4_overlay_panel_mode_unset(writeback_pipe->mixer_num,
 						MDP4_PANEL_WRITEBACK);
 		writeback_pipe = NULL;
 	}
 	ret = panel_next_off(pdev);
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
-	/* MDP_LAYERMIXER_WB_MUX_SEL to restore
-	 * mixer1 axi for mixer1 writeback */
-	data = inpdw(MDP_BASE + 0x100F4);
-	data &= ~0x02; /* clear the mixer1 mux bit */
-	outpdw(MDP_BASE + 0x100F4, data);
+	/* MDP_LAYERMIXER_WB_MUX_SEL to restore to default cfg*/
+	outpdw(MDP_BASE + 0x100F4, 0x0);
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 	return ret;
 }
@@ -175,15 +178,16 @@ int mdp4_overlay_writeback_update(struct msm_fb_data_type *mfd)
 	pipe->dst_y = 0;
 	pipe->dst_x = 0;
 
+	mdp4_overlay_mdp_pipe_req(pipe, mfd);
 	if (mfd->display_iova)
 		pipe->srcp0_addr = mfd->display_iova + buf_offset;
 	else
 		pipe->srcp0_addr = (uint32)(buf + buf_offset);
 
-	mdp4_mixer_stage_up(pipe);
+	mdp4_mixer_stage_up(pipe, 0);
 
 	mdp4_overlayproc_cfg(pipe);
-
+	mdp4_mixer_stage_commit(pipe->mixer_num);
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
@@ -275,9 +279,12 @@ void mdp4_writeback_kickoff_video(struct msm_fb_data_type *mfd,
 
 	writeback_pipe->ov_blt_addr = (ulong) (node ? node->addr : NULL);
 
+	/* free previous iommu at freelist back to pool */
+	mdp4_overlay_iommu_unmap_freelist(writeback_pipe->mixer_num);
+
 	if (!writeback_pipe->ov_blt_addr) {
 		pr_err("%s: no writeback buffer 0x%x, %p\n", __func__,
-			(unsigned int)writeback_pipe->ov_blt_addr, node);
+				(unsigned int)writeback_pipe->ov_blt_addr, node);
 		mutex_unlock(&mfd->unregister_mutex);
 		return;
 	}
@@ -287,8 +294,14 @@ void mdp4_writeback_kickoff_video(struct msm_fb_data_type *mfd,
 
 	pr_debug("%s: pid=%d\n", __func__, current->pid);
 
-	mdp4_writeback_overlay_kickoff(mfd, pipe);
+	mdp4_mixer_stage_commit(pipe->mixer_num);
 
+	mdp4_writeback_overlay_kickoff(mfd, pipe);
+	mdp4_writeback_dma_busy_wait(mfd);
+
+	/* move current committed iommu to freelist */
+	mdp4_overlay_iommu_pipe_free(pipe->pipe_ndx, 0);
+	
 	mutex_lock(&mfd->writeback_mutex);
 	list_add_tail(&node->active_entry, &mfd->writeback_busy_queue);
 	mutex_unlock(&mfd->writeback_mutex);
@@ -300,6 +313,7 @@ void mdp4_writeback_kickoff_video(struct msm_fb_data_type *mfd,
 void mdp4_writeback_kickoff_ui(struct msm_fb_data_type *mfd,
 		struct mdp4_overlay_pipe *pipe)
 {
+	mdp4_mixer_stage_commit(pipe->mixer_num);
 
 	pr_debug("%s: pid=%d\n", __func__, current->pid);
 	mdp4_writeback_overlay_kickoff(mfd, pipe);
@@ -309,6 +323,9 @@ void mdp4_writeback_overlay(struct msm_fb_data_type *mfd)
 {
 	int ret = 0;
 	struct msmfb_writeback_data_list *node = NULL;
+
+	if (!mfd)
+		return;
 
 	mutex_lock(&mfd->unregister_mutex);
 	mutex_lock(&mfd->writeback_mutex);

@@ -69,8 +69,7 @@ static int ion_iommu_heap_allocate(struct ion_heap *heap,
 		sg_init_table(data->iommu_sglist, data->nrpages);
 
 		for (i = 0; i < data->nrpages; i++) {
-			data->pages[i] = alloc_page(GFP_KERNEL | __GFP_ZERO | __GFP_HIGHMEM ); // add flag for allcation at HIGHMEM+NORMAL
-			//data->pages[i] = alloc_page(GFP_KERNEL | __GFP_ZERO);
+			data->pages[i] = alloc_page(GFP_KERNEL | __GFP_ZERO);
 			if (!data->pages[i])
 				goto err2;
 
@@ -197,7 +196,7 @@ int ion_iommu_heap_map_iommu(struct ion_buffer *buffer,
 						data->mapped_size, align,
 						&data->iova_addr);
 
-	if (!data->iova_addr)
+	if (ret)
 		goto out;
 
 	domain = msm_get_iommu_domain(domain_num);

@@ -37,7 +37,6 @@ struct kgsl_pwrscale {
 	struct kgsl_pwrscale_policy *policy;
 	struct kobject kobj;
 	void *priv;
-
 	int enabled;
 };
 

@@ -72,4 +72,5 @@ obj-$(CONFIG_PMIC8058_XOADC) += pmic8058-xoadc.o
 obj-$(CONFIG_TZCOM) += tzcom.o
 obj-$(CONFIG_QSEECOM) += qseecom.o
 obj-$(CONFIG_QFP_FUSE) += qfp_fuse.o
+obj-$(CONFIG_USB_SWITCH_FSA9485)	+= fsa9485.o
 obj-$(CONFIG_BU52031NVX) += pm8xxx-cradle.o #LGE add hall ic support

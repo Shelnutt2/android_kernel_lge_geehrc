@@ -519,8 +519,8 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 	rcmd_gpu = rb->buffer_desc.gpuaddr
 		+ sizeof(uint)*(rb->wptr-total_sizedwords);
 
-		GSL_RB_WRITE(ringcmds, rcmd_gpu, cp_nop_packet(1));
-		GSL_RB_WRITE(ringcmds, rcmd_gpu, KGSL_CMD_IDENTIFIER);
+	GSL_RB_WRITE(ringcmds, rcmd_gpu, cp_nop_packet(1));
+	GSL_RB_WRITE(ringcmds, rcmd_gpu, KGSL_CMD_IDENTIFIER);
 
 	if (flags & KGSL_CMD_FLAGS_PMODE) {
 		/* disable protected mode error checking */
@@ -577,7 +577,6 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 			cp_type3_packet(CP_MEM_WRITE, 2));
 		GSL_RB_WRITE(ringcmds, rcmd_gpu, (gpuaddr +
 			KGSL_MEMSTORE_OFFSET(context_id, soptimestamp)));
-
 		GSL_RB_WRITE(ringcmds, rcmd_gpu, timestamp);
 
 		/* end-of-pipeline timestamp */
@@ -586,16 +585,13 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 		GSL_RB_WRITE(ringcmds, rcmd_gpu, CACHE_FLUSH_TS);
 		GSL_RB_WRITE(ringcmds, rcmd_gpu, (gpuaddr +
 			KGSL_MEMSTORE_OFFSET(context_id, eoptimestamp)));
-
 		GSL_RB_WRITE(ringcmds, rcmd_gpu, timestamp);
 
 		GSL_RB_WRITE(ringcmds, rcmd_gpu,
 			cp_type3_packet(CP_MEM_WRITE, 2));
 		GSL_RB_WRITE(ringcmds, rcmd_gpu, (gpuaddr +
-
 			KGSL_MEMSTORE_OFFSET(KGSL_MEMSTORE_GLOBAL,
 				eoptimestamp)));
-
 		GSL_RB_WRITE(ringcmds, rcmd_gpu,
 			rb->timestamp[KGSL_MEMSTORE_GLOBAL]);
 	} else {
@@ -638,7 +634,6 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 
 	return timestamp;
 }
-
 
 void
 adreno_ringbuffer_issuecmds_intr(struct kgsl_device *device,

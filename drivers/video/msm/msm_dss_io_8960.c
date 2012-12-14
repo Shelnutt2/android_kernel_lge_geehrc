@@ -47,6 +47,9 @@
 #define SW_RESET_PLL BIT(0)
 #define PWRDN_B BIT(7)
 
+void mipi_dsi_phy_rdy_poll(void);
+uint32 esc_byte_ratio;
+
 /* multimedia sub system clock control */
 char *mmss_cc_base = MSM_MMSS_CLK_CTL_BASE;
 /* multimedia sub system sfpb */
@@ -319,6 +322,10 @@ void mipi_dsi_phy_rdy_poll(void)
 		i++;
 		if (i > term_cnt) {
 			pr_err("DSI1 PHY NOT READY, exceeded polling TIMEOUT!\n");
+			/*adding Fatal error to check proper stack*/
+			#if defined(CONFIG_MACH_JAGUAR)
+			panic("mipi_dsi_phy_rdy_poll_timeout!!!\n");
+			#endif
 			break;
 		}
 		phy_pll_busy = MIPI_INP(MIPI_DSI_BASE + 0x280);
@@ -572,7 +579,9 @@ void mipi_dsi_phy_init(int panel_ndx, struct msm_panel_info const *panel_info,
 		off += 4;
 	}
 
-	if (panel_info)
+	if (!panel_info)
+		pr_err("%s: panel_info not initialized\n", __func__);
+	else
 		mipi_dsi_phy_pll_config(panel_info->clk_rate);
 
 	/* pll ctrl 0 */
@@ -658,12 +667,13 @@ void mipi_dsi_clk_enable(void)
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0200, pll_ctrl | 0x01);
 	mipi_dsi_phy_rdy_poll();
 
-	if (clk_set_rate(dsi_byte_div_clk, 1) < 0)	/* divided by 1 */
+	if (clk_set_rate(dsi_byte_div_clk, 1) < 0)/* divided by 1 */
 		pr_err("%s: dsi_byte_div_clk - "
 			"clk_set_rate failed\n", __func__);
 	if (clk_set_rate(dsi_esc_clk, esc_byte_ratio) < 0) /* divided by esc */
 		pr_err("%s: dsi_esc_clk - "			 /* clk ratio */
 			"clk_set_rate failed\n", __func__);
+
 	mipi_dsi_pclk_ctrl(&dsi_pclk, 1);
 	mipi_dsi_clk_ctrl(&dsicore_clk, 1);
 	clk_enable(dsi_byte_div_clk);
@@ -750,10 +760,6 @@ void hdmi_msm_reset_core(void)
 	hdmi_msm_clk(0);
 	udelay(5);
 	hdmi_msm_clk(1);
-
-	clk_reset(hdmi_msm_state->hdmi_app_clk, CLK_RESET_ASSERT);
-	udelay(20);
-	clk_reset(hdmi_msm_state->hdmi_app_clk, CLK_RESET_DEASSERT);
 }
 
 void hdmi_msm_init_phy(int video_format)

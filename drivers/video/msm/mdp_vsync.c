@@ -73,6 +73,19 @@ static struct msm_fb_data_type *vsync_mfd;
 static unsigned char timer_shutdown_flag;
 static uint32 vsync_cnt_cfg;
 
+
+void vsync_clk_prepare_enable(void)
+{
+	if (mdp_vsync_clk)
+		clk_prepare_enable(mdp_vsync_clk);
+}
+
+void vsync_clk_disable_unprepare(void)
+{
+	if (mdp_vsync_clk)
+		clk_disable_unprepare(mdp_vsync_clk);
+}
+
 void mdp_hw_vsync_clk_enable(struct msm_fb_data_type *mfd)
 {
 	if (vsync_clk_status == 1)
@@ -271,7 +284,7 @@ void mdp_vsync_cfg_regs(struct msm_fb_data_type *mfd,
 	 * external vsync source pulse width and
 	 * polarity flip
 	 */
-	MDP_OUTP(MDP_BASE + MDP_PRIM_VSYNC_OUT_CTRL, BIT(0));
+	MDP_OUTP(MDP_BASE + MDP_PRIM_VSYNC_OUT_CTRL, BIT(0)|BIT(30));
 #ifdef CONFIG_FB_MSM_MDP40
 	if (mdp_hw_revision < MDP4_REVISION_V2_1) {
 		MDP_OUTP(MDP_BASE +	MDP_SEC_VSYNC_OUT_CTRL, BIT(0));
